@@ -1,0 +1,57 @@
+#pragma kernel UpdateParticlePosition
+
+struct ComputeParticleStruct
+{
+    float2 force;
+    float2 velocity;
+    float2 position;
+    float2 gridPosition;
+    float  density;
+    float  pressure;
+    int    particleId;
+};
+
+
+
+RWStructuredBuffer<ComputeParticleStruct> particleBuffer;
+
+
+float deltaTime;
+float width;
+float height;
+float smoothingLength;
+
+[numthreads(128,1,1)]
+void UpdateParticlePosition(uint3 id : SV_DispatchThreadID)
+{
+    particleBuffer[id.x].velocity.x += deltaTime * (particleBuffer[id.x].force.x / particleBuffer[id.x].density);
+    particleBuffer[id.x].velocity.y += deltaTime * (particleBuffer[id.x].force.y / particleBuffer[id.x].density);
+
+    particleBuffer[id.x].position.x += deltaTime * particleBuffer[id.x].velocity.x;
+    particleBuffer[id.x].position.y += deltaTime * particleBuffer[id.x].velocity.y;
+
+    if (particleBuffer[id.x].position.y < 0)
+    {
+        particleBuffer[id.x].position.y = 0;
+        particleBuffer[id.x].velocity.y = -particleBuffer[id.x].velocity.y * 0.5f;
+    }
+
+    if (particleBuffer[id.x].position.y > (smoothingLength * height) - 0.2f)
+    {
+        particleBuffer[id.x].position.y = (smoothingLength * height) - 0.2f;
+        particleBuffer[id.x].velocity.y = -particleBuffer[id.x].velocity.y * 0.5f;
+    }
+
+    if (particleBuffer[id.x].position.x < 0)
+    {
+        particleBuffer[id.x].position.x = 0;
+        particleBuffer[id.x].velocity.x = -particleBuffer[id.x].velocity.x * 0.5f;
+    }
+
+
+    if (particleBuffer[id.x].position.x > (smoothingLength * width) - smoothingLength)
+    {
+        particleBuffer[id.x].position.x = (smoothingLength * width) - smoothingLength;
+        particleBuffer[id.x].velocity.x = -particleBuffer[id.x].velocity.x * 0.5f;
+    }
+}

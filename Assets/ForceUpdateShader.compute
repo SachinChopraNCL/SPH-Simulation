@@ -1,0 +1,158 @@
+#pragma kernel UpdateDensity
+#pragma kernel UpdatePressure
+
+struct ComputeParticleStruct
+{
+    float2 force;
+    float2 velocity;
+    float2 position;
+    float2 gridPosition;
+    float  density;
+    float  pressure;
+    int    particleId;
+};
+
+
+struct GridStruct
+{
+    int gridVal0;
+    int gridVal1;
+    int gridVal2;
+    int gridVal3;
+    int gridVal4;
+    int particleCount;
+};
+
+RWStructuredBuffer<ComputeParticleStruct> particleBuffer;
+
+StructuredBuffer<GridStruct> gridBuffer;
+
+float width;
+float height;
+float smoothingLength;
+float densityKernel;
+float pressureKernel;
+float viscosityKernel;
+int particleCount;
+
+float2 pressure;
+float2 viscosity;
+
+static const float PI = 3.14159265f;
+
+void DensityLocal(uint3 id, GridStruct grid)
+{
+    for (int i = 0; i < grid.particleCount; i++)
+    {
+        int index = 0;
+
+        if (i == 0) index = grid.gridVal0;
+        if (i == 1) index = grid.gridVal1;
+        if (i == 2) index = grid.gridVal2;
+        if (i == 3) index = grid.gridVal3;
+        if (i == 4) index = grid.gridVal4;
+
+
+        float2 position = particleBuffer[index].position - particleBuffer[id.x].position;
+        float  magnitude = length(position);
+
+        if (magnitude < smoothingLength)
+        {
+            particleBuffer[id.x].density += 0.1f * densityKernel * pow(smoothingLength * smoothingLength - magnitude, 3.0f);
+        }
+    }
+    particleBuffer[id.x].pressure = 0.3f * (particleBuffer[id.x].density - 42);
+}
+
+void PressureLocal(uint id, GridStruct grid)
+{
+    for (int i = 0; i < grid.particleCount; i++)
+    {
+        int index = 0;
+
+        if (i == 0) index = grid.gridVal0;
+        if (i == 1) index = grid.gridVal1;
+        if (i == 2) index = grid.gridVal2;
+        if (i == 3) index = grid.gridVal3;
+        if (i == 4) index = grid.gridVal4;
+        
+        if (particleBuffer[index].particleId == particleBuffer[id.x].particleId) continue;
+
+        float2 position = particleBuffer[index].position - particleBuffer[id.x].position;
+        float  magnitude = length(position);
+
+        if (magnitude < smoothingLength)
+        {
+            pressure += -normalize(position) * 0.1f * (particleBuffer[id.x].pressure + particleBuffer[index].pressure) / (2.0f * particleBuffer[index].density) * pressureKernel * pow(smoothingLength - magnitude, 2.0f);
+            viscosity += 0.1f * 0.1f * (particleBuffer[index].velocity - particleBuffer[id.x].velocity) / particleBuffer[index].density * viscosityKernel * (smoothingLength - magnitude);
+        }
+
+    }
+}
+
+[numthreads(4,1,1)]
+void UpdateDensity(uint3 id : SV_DispatchThreadID)
+{
+
+    densityKernel = 315.0f / (65.0f * PI * pow(smoothingLength, 9.0f));
+
+    int x = (int)particleBuffer[id.x].gridPosition.x;
+    int y = (int)particleBuffer[id.x].gridPosition.y;
+
+    particleBuffer[id.x].density = 0;
+    DensityLocal(id, gridBuffer[y * width + x]);
+    if (x < width - 1)
+        DensityLocal(id, gridBuffer[y * width + (x + 1)]);
+    if (x > 0)
+        DensityLocal(id, gridBuffer[y * width + (x - 1)]);
+
+    if (y < height - 1)
+        DensityLocal(id, gridBuffer[(y + 1) * width + x]);
+    if (x < width - 1 && y < height - 1)
+        DensityLocal(id, gridBuffer[(y + 1) * width + (x + 1)]);
+    if (x > 0 && y < height - 1)
+        DensityLocal(id, gridBuffer[(y + 1) * width + (x - 1)]);
+
+    if (y > 0)
+        DensityLocal(id, gridBuffer[(y - 1) * width + x]);
+    if (x < width - 1 && y > 0)
+        DensityLocal(id, gridBuffer[(y - 1) * width + (x + 1)]);
+    if (x > 0 && y > 0)
+        DensityLocal(id, gridBuffer[(y - 1) * width + (x - 1)]);
+}
+
+[numthreads(4, 1, 1)]
+void UpdatePressure(uint3 id : SV_DispatchThreadID)
+{
+    pressureKernel = -45.0f / (PI * pow(smoothingLength, 6.0f));
+    viscosityKernel = 45.0f / (PI * pow(smoothingLength, 6.0f));
+
+    pressure = float2(0, 0);
+    viscosity = float2(0, 0);
+
+    int x = (int)particleBuffer[id.x].gridPosition.x;
+    int y = (int)particleBuffer[id.x].gridPosition.y;
+
+    PressureLocal(id, gridBuffer[y * width + x]);
+    if (x < width - 1)
+        PressureLocal(id, gridBuffer[y * width + (x + 1)]);
+    if (x > 0)
+        PressureLocal(id, gridBuffer[y * width + (x - 1)]);
+
+    if (y < height - 1)
+        PressureLocal(id, gridBuffer[(y + 1) * width + x]);
+    if (x < width - 1 && y < height - 1)
+        PressureLocal(id, gridBuffer[(y + 1) * width + (x + 1)]);
+    if (x > 0 && y < height - 1)
+        PressureLocal(id, gridBuffer[(y + 1) * width + (x - 1)]);
+
+    if (y > 0)
+        PressureLocal(id, gridBuffer[(y - 1) * width + x]);
+    if (x < width - 1 && y > 0)
+        PressureLocal(id, gridBuffer[(y - 1) * width + (x + 1)]);
+    if (x > 0 && y > 0)
+        PressureLocal(id, gridBuffer[(y - 1) * width + (x - 1)]);
+
+    float2 gravity = float2(0, -9.8f  * 0.1f) * particleBuffer[id.x].density;
+    particleBuffer[id.x].force = pressure + viscosity + gravity;
+}
