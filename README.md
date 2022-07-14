@@ -1,3 +1,2 @@
 # SPH-Simulation
-SPH Simulation implemented as a part of my 4th Dissertation
-[![Watch the video](https://img.youtube.com/vi/nTQUwghvy5Q/default.jpg)](https://youtu.be/s7Cmi3qqQWU)
+SPH Simulation implemented as a part of my 4th Dissertation, video at: https://youtu.be/s7Cmi3qqQWU
